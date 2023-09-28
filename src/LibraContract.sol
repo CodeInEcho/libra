@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity >=0.8.20;
+pragma solidity >=0.8.19;
 
 import "forge-std/console.sol";
 // import { Ownable } from "openzeppelin/contracts/access/Ownable.sol";
-import { ECDSA } from "openzeppelin-contracts/utils/cryptography/ECDSA.sol";
+import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 contract LibraContract {
     // using ECDSA for bytes32;
