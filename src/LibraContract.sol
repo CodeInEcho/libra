@@ -2,7 +2,6 @@
 pragma solidity >=0.8.20;
 
 import "forge-std/console.sol";
-// import { Ownable } from "openzeppelin/contracts/access/Ownable.sol";
 import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 contract LibraContract {
@@ -17,14 +16,24 @@ contract LibraContract {
     struct Order {
         string id;
         address buyer;
+        uint256 price;
         address seller;
         uint256 amount;
-        uint256 price;
-        uint256 quantity;
         uint256 payTime;
+        uint256 quantity;
         uint256 feesRatio;
         uint256 collateral;
         OrderStatus state;
+    }
+
+    struct OrderParams {
+        string id;
+        address buyer;
+        uint256 price;
+        address seller;
+        uint256 quantity;
+        uint256 feesRatio;
+        uint256 collateral;
     }
 
     mapping(string => Order) public orders;
@@ -36,36 +45,47 @@ contract LibraContract {
         admin = msg.sender;
     }
 
-    function createOrder(string memory id, address buyer, address seller, uint256 price, uint256 quantity, 
-    uint256 collateral, uint256 feesRatio, bytes memory signature) public payable {
-        require(msg.sender == buyer, "Invalid buyer");
+    function createOrder(OrderParams memory params, bytes memory signature) public payable {
+        require(msg.sender == params.buyer, "Invalid buyer");
 
         // Check if msg.value is equal to totalPrice
-        uint256 totalPrice = quantity * price + collateral;
+        uint256 totalPrice = params.quantity * params.price + params.collateral;
         require(msg.value == totalPrice, "Value sent is not correct");
 
         bytes32 hashedParams = keccak256(
-            abi.encodePacked(id, buyer, seller, price, quantity)
+            abi.encodePacked(params.id, params.buyer, params.seller, params.price, params.quantity)
         );
         // bytes32 ethSignedMessageHash = getEthSignedMessageHash(hashedParams);
         address recovered = ECDSA.recover(hashedParams, signature);
         if (recovered != signer) revert InvalidSignature();
-        console.logAddress(recovered);
 
         uint256 payTime = block.timestamp;
 
-        orders[id] = Order({
-            id: id,
-            buyer: buyer,
-            seller: seller,
-            price: price,
-            amount: quantity * price,
+        orders[params.id] = Order({
+            id: params.id,
             payTime: payTime,
-            quantity: quantity,
-            feesRatio: feesRatio,
-            collateral: collateral,
-            state: OrderStatus.Paid
+            buyer: params.buyer,
+            price: params.price,
+            seller: params.seller,
+            state: OrderStatus.Paid,
+            quantity: params.quantity,
+            feesRatio: params.feesRatio,
+            collateral: params.collateral,
+            amount: params.quantity * params.price
         });
+    }
+
+    function confirmDeliver(string memory id, bytes memory signature) public {
+        Order memory order = orders[id];
+        require(msg.sender == order.seller, "Invalid seller");
+        require(order.state == OrderStatus.Paid, "Invalid state");
+        
+        bytes32 hashedParams = keccak256(abi.encodePacked(id));
+        address recovered = ECDSA.recover(hashedParams, signature);
+        if (recovered != signer) revert InvalidSignature();
+
+        order.state = OrderStatus.Shipped;
+        orders[id] = order;
     }
 
     function getEthSignedMessageHash(
@@ -93,9 +113,9 @@ contract LibraContract {
         return orders[id].buyer;
     }
 
-    function getOrderStatus(string memory id) public view returns(OrderStatus) {
-        return orders[id].status;
-    }
+    // function getOrderStatus(string memory id) public view returns(OrderStatus) {
+    //     return orders[id].status;
+    // }
 
     function cancelOrder(uint id) public {}
 
