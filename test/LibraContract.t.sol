@@ -9,13 +9,17 @@ import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 contract LibraContractTest is Test {
     using ECDSA for bytes32;
     enum OrderStatus {Paid, Shipped, Completed, Cancelled}
+    
     struct Order {
         string id;
         address buyer;
-        address seller;
         uint256 price;
-        uint256 quantity;
+        address seller;
+        uint256 amount;
         uint256 payTime;
+        uint256 quantity;
+        uint256 feesRatio;
+        uint256 collateral;
         OrderStatus state;
     }
 
@@ -46,13 +50,14 @@ contract LibraContractTest is Test {
             buyer: buyer,
             price: price,
             seller: seller,
-            feesRatio: 1000,
-            collateral: 1000,
-            quantity: quantity
+            feesRatio: 2,
+            quantity: quantity,
+            securityDeposit: 1000,
+            fundReleasePeriod: 7
         });
         vm.startPrank(buyer);
-        vm.deal(buyer, price * quantity + 1000);
-        _libra.createOrder{value: price * quantity + 1000}(params, signature);
+        vm.deal(buyer, price * quantity + 1000 + (price * quantity / 100));
+        _libra.createOrder{value: price * quantity + (price * quantity / 100) + 1000}(params, signature);
         vm.stopPrank();
 
         address order = _libra.getOrderBuyer(id);
@@ -74,8 +79,37 @@ contract LibraContractTest is Test {
         vm.stopPrank();
     }
 
-    // function testSetSigner() public {
-    // }
+    function testConfirmReceipt() public {
+        testConfirmDeliver();
+        string memory id = "order1";
+        // 模拟签名
+        uint256 privateKey = 0x4208f1cfd43f87cad512ee1163b8f96f13e631174619f6ad81b7acc4298444b2;
+
+        bytes32 hashed = keccak256(abi.encodePacked(id));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, hashed);
+        bytes memory signature = abi.encodePacked(r, s, v);
+        address seller = address(0x19A6acE647842f55F6DF65973f72bfB298398c2c);
+
+        vm.startPrank(seller);
+        _libra.confirmReceipt(id, signature);
+        vm.stopPrank();
+    }
+
+    function testWithdrawById() public {
+        testConfirmReceipt();
+        string memory id = "order1";
+        // 模拟签名
+        uint256 privateKey = 0x4208f1cfd43f87cad512ee1163b8f96f13e631174619f6ad81b7acc4298444b2;
+
+        bytes32 hashed = keccak256(abi.encodePacked(id));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, hashed);
+        bytes memory signature = abi.encodePacked(r, s, v);
+        address seller = address(0x19A6acE647842f55F6DF65973f72bfB298398c2c);
+
+        vm.startPrank(seller);
+        _libra.withdrawById(id, signature);
+        vm.stopPrank();
+    }
 
     // function testCancelOrder() public {
     // }

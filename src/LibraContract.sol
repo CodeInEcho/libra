@@ -8,10 +8,12 @@ contract LibraContract {
     // using ECDSA for bytes32;
     address public admin;
     address public signer;
+    address private usdc;
+    address private usdt;
 
     error InvalidSignature();
 
-    enum OrderStatus {Paid, Shipped, Completed, Cancelled}
+    enum OrderStatus {Paid, Shipped, Completed, Finished, Cancelled}
 
     struct Order {
         string id;
@@ -22,7 +24,9 @@ contract LibraContract {
         uint256 payTime;
         uint256 quantity;
         uint256 feesRatio;
-        uint256 collateral;
+        uint256 completeTime;
+        uint256 securityDeposit;
+        uint256 fundReleasePeriod;
         OrderStatus state;
     }
 
@@ -33,15 +37,19 @@ contract LibraContract {
         address seller;
         uint256 quantity;
         uint256 feesRatio;
-        uint256 collateral;
+        uint256 securityDeposit;
+        uint256 fundReleasePeriod;
     }
 
     mapping(string => Order) public orders;
-    mapping(string => uint) public deposits;
+    mapping(address => uint256) public balance;
+    mapping(string => uint256) public deposits;
     // Track status of each order (validated, cancelled, and fraction filled).
     mapping(string => OrderStatus) private _orderStatus;
 
     constructor() {
+        usdc = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+        usdt = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
         admin = msg.sender;
     }
 
@@ -49,7 +57,8 @@ contract LibraContract {
         require(msg.sender == params.buyer, "Invalid buyer");
 
         // Check if msg.value is equal to totalPrice
-        uint256 totalPrice = params.quantity * params.price + params.collateral;
+        uint256 amount = params.quantity * params.price;
+        uint256 totalPrice = amount + amount * params.feesRatio / 100 / 2 + params.securityDeposit;
         require(msg.value == totalPrice, "Value sent is not correct");
 
         bytes32 hashedParams = keccak256(
@@ -63,6 +72,8 @@ contract LibraContract {
 
         orders[params.id] = Order({
             id: params.id,
+            completeTime: 0,
+            amount: amount,
             payTime: payTime,
             buyer: params.buyer,
             price: params.price,
@@ -70,8 +81,8 @@ contract LibraContract {
             state: OrderStatus.Paid,
             quantity: params.quantity,
             feesRatio: params.feesRatio,
-            collateral: params.collateral,
-            amount: params.quantity * params.price
+            securityDeposit: params.securityDeposit,
+            fundReleasePeriod: params.fundReleasePeriod
         });
     }
 
@@ -86,6 +97,43 @@ contract LibraContract {
 
         order.state = OrderStatus.Shipped;
         orders[id] = order;
+    }
+
+    function confirmReceipt(string memory id, bytes memory signature) public {
+        Order memory order = orders[id];
+        require(msg.sender == order.seller, "Invalid seller");
+        require(order.state == OrderStatus.Shipped, "Invalid state");
+
+        bytes32 hashedParams = keccak256(abi.encodePacked(id));
+        address recovered = ECDSA.recover(hashedParams, signature);
+        if (recovered != signer) revert InvalidSignature();
+
+        balance[order.seller] += order.amount - order.amount * order.feesRatio / 100 / 2 + order.securityDeposit;
+
+        order.state = OrderStatus.Completed;
+        orders[id] = order;
+    }
+
+    // Disallow reentrancy attacks
+    function withdrawById(string memory id, bytes memory signature) external payable {
+        Order memory order = orders[id];
+        require(msg.sender == order.seller, "Invalid seller");
+        require(order.state == OrderStatus.Completed, "Invalid state");
+
+        uint releaseTime = order.completeTime + order.fundReleasePeriod * 1 days;
+        require(releaseTime >= block.timestamp, "Funds are frozen");
+
+        bytes32 hashedParams = keccak256(abi.encodePacked(id));
+        address recovered = ECDSA.recover(hashedParams, signature);
+        if (recovered != signer) revert InvalidSignature();
+
+        order.state = OrderStatus.Finished;
+        orders[id] = order;
+
+        uint256 amount = order.amount - order.amount * order.feesRatio / 2 + order.securityDeposit;
+        balance[order.seller] -= amount;
+
+        payable(msg.sender).transfer(amount);
     }
 
     function getEthSignedMessageHash(
@@ -113,7 +161,7 @@ contract LibraContract {
         return orders[id].buyer;
     }
 
-    // function getOrderStatus(string memory id) public view returns(OrderStatus) {
+    // function getOrderStatus(string memory id) public view returns(string memory) {
     //     return orders[id].status;
     // }
 
