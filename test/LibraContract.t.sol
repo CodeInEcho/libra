@@ -75,6 +75,8 @@ contract LibraContractTest is Test {
         bytes memory signature = abi.encodePacked(r, s, v);
         address seller = address(0x19A6acE647842f55F6DF65973f72bfB298398c2c);
         vm.startPrank(seller);
+        vm.deal(seller, 2000);
+        _libra.depositBalace{value: 2000}();
         _libra.confirmDeliver(id, signature);
         vm.stopPrank();
     }

@@ -41,9 +41,17 @@ contract LibraContract {
         uint256 fundReleasePeriod;
     }
 
+    struct Account {
+        uint balance;
+        uint frozenBalance;
+        uint securityDeposit;
+        uint frozenSecurityDeposit;
+    }
+
     mapping(string => Order) public orders;
-    mapping(address => uint256) public balance;
+    // mapping(address => uint256) public balance;
     mapping(string => uint256) public deposits;
+    mapping(address => Account) public accounts;
     // Track status of each order (validated, cancelled, and fraction filled).
     mapping(string => OrderStatus) private _orderStatus;
 
@@ -90,7 +98,13 @@ contract LibraContract {
         Order memory order = orders[id];
         require(msg.sender == order.seller, "Invalid seller");
         require(order.state == OrderStatus.Paid, "Invalid state");
-        
+
+        uint securityBalance = accounts[order.seller].securityDeposit - accounts[order.seller].frozenSecurityDeposit;
+        uint needSecurityDeposit = order.securityDeposit * order.quantity;
+        require(securityBalance >= needSecurityDeposit, "Insufficient security deposit");
+
+        accounts[order.seller].frozenSecurityDeposit += allSecurityDeposit;
+
         bytes32 hashedParams = keccak256(abi.encodePacked(id));
         address recovered = ECDSA.recover(hashedParams, signature);
         if (recovered != signer) revert InvalidSignature();
@@ -133,6 +147,18 @@ contract LibraContract {
         uint256 amount = order.amount - order.amount * order.feesRatio / 2 + order.securityDeposit;
         balance[order.seller] -= amount;
 
+        payable(msg.sender).transfer(amount);
+    }
+
+    function depositSecurity() public payable {
+        require(msg.value > 0, "deposit amount must be greater than 0");
+        accounts[msg.sender].securityDeposit += msg.value;
+    }
+
+    function withdrawSecurity(uint amount) public payable {
+        uint securityBalance = accounts[msg.sender].securityDeposit - accounts[msg.sender].frozenSecurityDeposit;
+        require(amount <= securityBalance, "Insufficient security deposit");
+        accounts[msg.sender].securityDeposit -= amount;
         payable(msg.sender).transfer(amount);
     }
 
