@@ -53,11 +53,11 @@ contract LibraContractTest is Test {
             feesRatio: 2,
             quantity: quantity,
             securityDeposit: 1000,
-            fundReleasePeriod: 7
+            fundReleasePeriod: 0
         });
         vm.startPrank(buyer);
         vm.deal(buyer, price * quantity + 1000 + (price * quantity / 100));
-        _libra.createOrder{value: price * quantity + (price * quantity / 100) + 1000}(params, signature);
+        _libra.createOrder{value: price * quantity + (price * quantity / 100)}(params, signature);
         vm.stopPrank();
 
         address order = _libra.getOrderBuyer(id);
@@ -76,7 +76,7 @@ contract LibraContractTest is Test {
         address seller = address(0x19A6acE647842f55F6DF65973f72bfB298398c2c);
         vm.startPrank(seller);
         vm.deal(seller, 2000);
-        _libra.depositBalace{value: 2000}();
+        _libra.depositSecurity{value: 2000}();
         _libra.confirmDeliver(id, signature);
         vm.stopPrank();
     }
@@ -94,6 +94,7 @@ contract LibraContractTest is Test {
 
         vm.startPrank(seller);
         _libra.confirmReceipt(id, signature);
+        _libra.withdrawSecurity(2000);
         vm.stopPrank();
     }
 

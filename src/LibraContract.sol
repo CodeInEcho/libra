@@ -48,17 +48,17 @@ contract LibraContract {
         uint frozenSecurityDeposit;
     }
 
+    string[] private orderIds;
     mapping(string => Order) public orders;
-    // mapping(address => uint256) public balance;
     mapping(string => uint256) public deposits;
     mapping(address => Account) public accounts;
     // Track status of each order (validated, cancelled, and fraction filled).
     mapping(string => OrderStatus) private _orderStatus;
 
     constructor() {
+        admin = msg.sender;
         usdc = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
         usdt = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
-        admin = msg.sender;
     }
 
     function createOrder(OrderParams memory params, bytes memory signature) public payable {
@@ -66,7 +66,7 @@ contract LibraContract {
 
         // Check if msg.value is equal to totalPrice
         uint256 amount = params.quantity * params.price;
-        uint256 totalPrice = amount + amount * params.feesRatio / 100 / 2 + params.securityDeposit;
+        uint256 totalPrice = amount + amount * params.feesRatio / 100 / 2;
         require(msg.value == totalPrice, "Value sent is not correct");
 
         bytes32 hashedParams = keccak256(
@@ -76,8 +76,12 @@ contract LibraContract {
         address recovered = ECDSA.recover(hashedParams, signature);
         if (recovered != signer) revert InvalidSignature();
 
+        accounts[params.buyer].balance += totalPrice;
+        accounts[params.buyer].frozenBalance += totalPrice;
+
         uint256 payTime = block.timestamp;
 
+        orderIds.push(params.id);
         orders[params.id] = Order({
             id: params.id,
             completeTime: 0,
@@ -103,7 +107,7 @@ contract LibraContract {
         uint needSecurityDeposit = order.securityDeposit * order.quantity;
         require(securityBalance >= needSecurityDeposit, "Insufficient security deposit");
 
-        accounts[order.seller].frozenSecurityDeposit += allSecurityDeposit;
+        accounts[order.seller].frozenSecurityDeposit += needSecurityDeposit;
 
         bytes32 hashedParams = keccak256(abi.encodePacked(id));
         address recovered = ECDSA.recover(hashedParams, signature);
@@ -122,7 +126,15 @@ contract LibraContract {
         address recovered = ECDSA.recover(hashedParams, signature);
         if (recovered != signer) revert InvalidSignature();
 
-        balance[order.seller] += order.amount - order.amount * order.feesRatio / 100 / 2 + order.securityDeposit;
+        uint256 totalPrice = order.amount + order.amount * order.feesRatio / 100 / 2;
+        accounts[order.seller].balance += order.amount;
+        accounts[order.buyer].balance -= totalPrice;
+        accounts[order.buyer].frozenBalance -= totalPrice;
+        uint releaseTime = order.fundReleasePeriod * 1 days;
+        if (releaseTime > block.timestamp) accounts[order.seller].frozenBalance += order.amount;
+
+        uint needSecurityDeposit = order.securityDeposit * order.quantity;
+        accounts[order.seller].frozenSecurityDeposit -= needSecurityDeposit;
 
         order.state = OrderStatus.Completed;
         orders[id] = order;
@@ -135,7 +147,7 @@ contract LibraContract {
         require(order.state == OrderStatus.Completed, "Invalid state");
 
         uint releaseTime = order.completeTime + order.fundReleasePeriod * 1 days;
-        require(releaseTime >= block.timestamp, "Funds are frozen");
+        require(releaseTime <= block.timestamp, "Funds are frozen");
 
         bytes32 hashedParams = keccak256(abi.encodePacked(id));
         address recovered = ECDSA.recover(hashedParams, signature);
@@ -144,10 +156,29 @@ contract LibraContract {
         order.state = OrderStatus.Finished;
         orders[id] = order;
 
-        uint256 amount = order.amount - order.amount * order.feesRatio / 2 + order.securityDeposit;
-        balance[order.seller] -= amount;
+        uint256 feesRatio = order.amount * order.feesRatio / 2 / 100;
+        uint256 amount = order.amount - feesRatio;
 
-        payable(msg.sender).transfer(amount);
+        uint256 balance = accounts[msg.sender].balance - accounts[msg.sender].frozenBalance;
+        require(balance >= 0, 'Insufficient balance');
+        accounts[order.seller].balance -= balance;
+
+        payable(msg.sender).transfer(balance);
+    }
+
+    function availableBalance(address wallet) public view returns(uint256 amount) {
+        uint256 amount = 0;
+        uint256 length = orderIds.length;
+        for (uint256 i = 0; i < length; i++) {
+            Order memory order = orders[orderIds[i]];
+            if (order.seller == wallet) {
+                uint256 releaseTime = order.completeTime + order.fundReleasePeriod * 1 days;
+                if (releaseTime <= block.timestamp) {
+                    amount += order.amount;
+                }
+            }
+        }
+        return amount;
     }
 
     function depositSecurity() public payable {
@@ -171,6 +202,12 @@ contract LibraContract {
             );
     }
 
+    function cancelOrder(string memory id) public {
+        Order memory order = orders[id];
+        order.state = OrderStatus.Cancelled;
+        orders[id] = order;
+    }
+
     function setSigner(address _signer) public {
         signer = _signer;
     }
@@ -191,7 +228,4 @@ contract LibraContract {
     //     return orders[id].status;
     // }
 
-    function cancelOrder(uint id) public {}
-
-    function shipOrder(uint id) public {}
 }
