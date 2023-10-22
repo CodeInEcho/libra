@@ -114,6 +114,13 @@ contract LibraContractTest is Test {
         vm.stopPrank();
     }
 
+    function testCancelOrder() public {
+        testWithdraw();
+        vm.startPrank(0x19A6acE647842f55F6DF65973f72bfB298398c2c);
+        _libra.cancelOrder("order1");
+        vm.stopPrank();
+    }
+
     // function testSign() public {
     //     // 模拟签名
     //     uint256 privateKey = 0x97ed4950eeb00f0644845197ed8bf389eea9e1b718865095861aff22c9f84ee4;

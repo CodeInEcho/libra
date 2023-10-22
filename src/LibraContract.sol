@@ -13,6 +13,14 @@ contract LibraContract is Ownable, ReentrancyGuard {
 
     error InvalidSignature();
 
+    event EventCreateOrder(string orderId);
+    event EventConfirmDeliver(string orderId);
+    event EventConfirmReceipt(string orderId);
+    event EventWithdraw(uint256 amount);
+    event EventDepositSecurity(uint256 amount);
+    event EventwithdrawSecurity(uint256 amount);
+    event EventCancelOrder(string orderId);
+
     enum OrderStatus {Paid, Shipped, HoldForFunds, Completed, Finished, Cancelled}
 
     struct Order {
@@ -90,10 +98,13 @@ contract LibraContract is Ownable, ReentrancyGuard {
             securityDeposit: params.securityDeposit,
             fundReleasePeriod: params.fundReleasePeriod
         });
+
+        emit EventCreateOrder(params.id);
     }
 
     function confirmDeliver(string memory id, bytes memory signature) public {
         Order memory order = orders[id];
+        require(bytes(order.id).length != 0, "Invalid orderId");
         require(msg.sender == order.seller, "Invalid seller");
         require(order.state == OrderStatus.Paid, "Invalid state");
 
@@ -109,10 +120,13 @@ contract LibraContract is Ownable, ReentrancyGuard {
 
         order.state = OrderStatus.Shipped;
         orders[id] = order;
+        
+        emit EventConfirmDeliver(id);
     }
 
     function confirmReceipt(string memory id, bytes memory signature) public {
         Order memory order = orders[id];
+        require(bytes(order.id).length != 0, "Invalid orderId");
         require(msg.sender == order.buyer, "Invalid buyer");
         require(order.state == OrderStatus.Shipped, "Invalid state");
 
@@ -137,6 +151,8 @@ contract LibraContract is Ownable, ReentrancyGuard {
             order.state = OrderStatus.Completed;
         }
         orders[id] = order;
+
+        emit EventConfirmReceipt(id);
     }
 
     function withdraw() external payable nonReentrant {
@@ -146,6 +162,8 @@ contract LibraContract is Ownable, ReentrancyGuard {
         accounts[msg.sender].balance -= balance;
 
         payable(msg.sender).transfer(balance);
+
+        emit EventWithdraw(balance);
     }
 
     function releaseFunds(address seller) public {
@@ -168,6 +186,8 @@ contract LibraContract is Ownable, ReentrancyGuard {
     function depositSecurity() public payable {
         require(msg.value > 0, "deposit amount must be greater than 0");
         accounts[msg.sender].securityDeposit += msg.value;
+
+        emit EventDepositSecurity(msg.value);
     }
 
     function withdrawSecurity(uint256 amount) public payable nonReentrant {
@@ -175,12 +195,17 @@ contract LibraContract is Ownable, ReentrancyGuard {
         require(amount <= securityBalance, "Insufficient security deposit");
         accounts[msg.sender].securityDeposit -= amount;
         payable(msg.sender).transfer(amount);
+
+        emit EventwithdrawSecurity(amount);
     }
 
     function cancelOrder(string memory id) public onlyOwner {
         Order memory order = orders[id];
+        require(bytes(order.id).length != 0, "Invalid orderId");
         order.state = OrderStatus.Cancelled;
         orders[id] = order;
+
+        emit EventCancelOrder(id);
     }
 
     function setSigner(address _signer) public onlyOwner {
