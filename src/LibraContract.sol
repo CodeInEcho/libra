@@ -56,9 +56,10 @@ contract LibraContract is Ownable, ReentrancyGuard {
         uint frozenSecurityDeposit;
     }
 
-    string[] private orderIds;
+    // string[] private orderIds;
     mapping(string orderId => Order order) public orders;
     mapping(address wallet => Account account) public accounts;
+    mapping(address wallet => string[] orderIds) public freezeOrderIds;
 
     constructor(address initialOwner) Ownable(initialOwner) {
         admin = msg.sender;
@@ -83,7 +84,7 @@ contract LibraContract is Ownable, ReentrancyGuard {
 
         uint256 payTime = block.timestamp;
 
-        orderIds.push(params.id);
+        // orderIds.push(params.id);
         orders[params.id] = Order({
             id: params.id,
             completeTime: 0,
@@ -98,6 +99,7 @@ contract LibraContract is Ownable, ReentrancyGuard {
             securityDeposit: params.securityDeposit,
             fundReleasePeriod: params.fundReleasePeriod
         });
+        if (params.fundReleasePeriod > 0) freezeOrderIds[params.seller].push(params.id);
 
         emit EventCreateOrder(params.id);
     }
@@ -168,6 +170,7 @@ contract LibraContract is Ownable, ReentrancyGuard {
 
     function releaseFunds(address seller) public {
         uint256 amount = 0;
+        string[] memory orderIds = freezeOrderIds[seller];
         uint256 length = orderIds.length;
         for (uint256 i = 0; i < length; i++) {
             Order memory order = orders[orderIds[i]];
