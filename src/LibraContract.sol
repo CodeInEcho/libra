@@ -7,7 +7,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 contract LibraContract is Ownable, ReentrancyGuard {
-    // using ECDSA for bytes32;
+    using ECDSA for bytes32;
     address public admin;
     address public signer;
 
@@ -56,7 +56,6 @@ contract LibraContract is Ownable, ReentrancyGuard {
         uint frozenSecurityDeposit;
     }
 
-    // string[] private orderIds;
     mapping(string orderId => Order order) public orders;
     mapping(address wallet => Account account) public accounts;
     mapping(address wallet => string[] orderIds) public freezeOrderIds;
@@ -65,43 +64,46 @@ contract LibraContract is Ownable, ReentrancyGuard {
         admin = msg.sender;
     }
 
-    function createOrder(OrderParams memory params, bytes memory signature) public payable {
-        require(msg.sender == params.buyer, "Invalid buyer");
+    function createOrder(OrderParams memory orderInfo, bytes memory signature) public payable {
+        require(msg.sender == orderInfo.buyer, "Invalid buyer");
 
         // Check if msg.value is equal to totalPrice
-        uint256 amount = params.quantity * params.price;
-        uint256 totalPrice = amount + amount * params.feesRatio / 100 / 2;
+        uint256 amount = orderInfo.quantity * orderInfo.price;
+        uint256 totalPrice = amount + amount * orderInfo.feesRatio / 100 / 2;
         require(msg.value == totalPrice, "Value sent is not correct");
 
         bytes32 hashedParams = keccak256(
-            abi.encodePacked(params.id, params.buyer, params.seller, params.price, params.quantity)
+            abi.encodePacked(orderInfo.id, orderInfo.buyer, orderInfo.seller, orderInfo.price, orderInfo.quantity, 
+            orderInfo.feesRatio, orderInfo.securityDeposit, orderInfo.fundReleasePeriod)
         );
+        // bytes32 _msgHash = ECDSA.toEthSignedMessageHash(hashedParams);
         address recovered = ECDSA.recover(hashedParams, signature);
+        require(ECDSA.verify(_msgHash, signature, signer), "Invalid signature");
         if (recovered != signer) revert InvalidSignature();
 
-        accounts[params.buyer].balance += totalPrice;
-        accounts[params.buyer].frozenBalance += totalPrice;
+        accounts[orderInfo.buyer].balance += totalPrice;
+        accounts[orderInfo.buyer].frozenBalance += totalPrice;
 
         uint256 payTime = block.timestamp;
 
-        // orderIds.push(params.id);
-        orders[params.id] = Order({
-            id: params.id,
+        // orderIds.push(orderInfo.id);
+        orders[orderInfo.id] = Order({
+            id: orderInfo.id,
             completeTime: 0,
             amount: amount,
             payTime: payTime,
-            buyer: params.buyer,
-            price: params.price,
-            seller: params.seller,
+            buyer: orderInfo.buyer,
+            price: orderInfo.price,
+            seller: orderInfo.seller,
             state: OrderStatus.Paid,
-            quantity: params.quantity,
-            feesRatio: params.feesRatio,
-            securityDeposit: params.securityDeposit,
-            fundReleasePeriod: params.fundReleasePeriod
+            quantity: orderInfo.quantity,
+            feesRatio: orderInfo.feesRatio,
+            securityDeposit: orderInfo.securityDeposit,
+            fundReleasePeriod: orderInfo.fundReleasePeriod
         });
-        if (params.fundReleasePeriod > 0) freezeOrderIds[params.seller].push(params.id);
+        if (orderInfo.fundReleasePeriod > 0) freezeOrderIds[orderInfo.seller].push(orderInfo.id);
 
-        emit EventCreateOrder(params.id);
+        emit EventCreateOrder(orderInfo.id);
     }
 
     function confirmDeliver(string memory id, bytes memory signature) public {
