@@ -3,8 +3,9 @@ pragma solidity >=0.8.19;
 
 import "forge-std/console.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 contract LibraContract is Ownable, ReentrancyGuard {
     using ECDSA for bytes32;
@@ -25,8 +26,8 @@ contract LibraContract is Ownable, ReentrancyGuard {
 
     struct Order {
         string id;
-        address buyer;
         uint256 price;
+        address buyer;
         address seller;
         uint256 amount;
         uint256 payTime;
@@ -40,13 +41,20 @@ contract LibraContract is Ownable, ReentrancyGuard {
 
     struct OrderParams {
         string id;
-        address buyer;
         uint256 price;
+        address buyer;
         address seller;
         uint256 quantity;
         uint256 feesRatio;
         uint256 securityDeposit;
         uint256 fundReleasePeriod;
+    }
+
+    struct EIP712Domain {
+        string  name;
+        string  version;
+        uint256 chainId;
+        address verifyingContract;
     }
 
     struct Account {
@@ -56,29 +64,85 @@ contract LibraContract is Ownable, ReentrancyGuard {
         uint frozenSecurityDeposit;
     }
 
+    bytes32 public immutable DOMAIN_SEPARATOR;
+
     mapping(string orderId => Order order) public orders;
     mapping(address wallet => Account account) public accounts;
     mapping(address wallet => string[] orderIds) public freezeOrderIds;
 
-    constructor(address initialOwner) Ownable(initialOwner) {
-        admin = msg.sender;
+    // USDT contract address
+    address public constant USDT_ADDRESS = 0xdAC17F958D2ee523a2206206994597C13D831ec7; 
+    // USDC contract address
+    address public constant USDC_ADDRESS = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+
+
+    bytes32 public constant EIP712DOMAIN_TYPEHASH = keccak256(
+        "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+    );
+
+    bytes32 internal constant TYPE_HASH = keccak256(
+        "OrderParams(string id, uint256 price, address buyer, "
+        "address seller, uint256 quantity, "
+        "uint256 feesRatio, uint256 securityDeposit, uint256 fundReleasePeriod)"
+    );
+
+    constructor(address initialOwner) Ownable() {
+        admin = initialOwner;
+        DOMAIN_SEPARATOR = keccak256(
+            abi.encode(
+                EIP712DOMAIN_TYPEHASH,
+                keccak256("Libra"),
+                keccak256("v0.0.1"),
+                block.chainid,
+                address(this)
+            )
+        );
+    }
+
+    function getStructHash(OrderParams memory orderInfo) public pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                TYPE_HASH,
+                keccak256(bytes(orderInfo.id)),
+                orderInfo.price,
+                orderInfo.buyer,
+                orderInfo.seller,
+                orderInfo.quantity,
+                orderInfo.feesRatio,
+                orderInfo.securityDeposit,
+                orderInfo.fundReleasePeriod
+            )
+        );
+    }
+
+    function getTypedDataHash(OrderParams memory orderInfo) public view returns (bytes32) {
+        return keccak256(abi.encodePacked(
+            "\x19\x01",
+            DOMAIN_SEPARATOR,
+            getStructHash(orderInfo)
+        ));
+    }
+
+    function verify(OrderParams memory orderInfo, uint8 v, bytes32 r, bytes32 s)
+    public view returns (bool) {
+        bytes32 digest = keccak256(abi.encodePacked(
+            "\x19\x01",
+            DOMAIN_SEPARATOR,
+            getStructHash(orderInfo)
+        ));
+        return ecrecover(digest, v, r, s) == signer;
     }
 
     function createOrder(OrderParams memory orderInfo, bytes memory signature) public payable {
         require(msg.sender == orderInfo.buyer, "Invalid buyer");
 
-        // Check if msg.value is equal to totalPrice
         uint256 amount = orderInfo.quantity * orderInfo.price;
         uint256 totalPrice = amount + amount * orderInfo.feesRatio / 100 / 2;
         require(msg.value == totalPrice, "Value sent is not correct");
 
-        bytes32 hashedParams = keccak256(
-            abi.encodePacked(orderInfo.id, orderInfo.buyer, orderInfo.seller, orderInfo.price, orderInfo.quantity, 
-            orderInfo.feesRatio, orderInfo.securityDeposit, orderInfo.fundReleasePeriod)
-        );
-        // bytes32 _msgHash = ECDSA.toEthSignedMessageHash(hashedParams);
-        address recovered = ECDSA.recover(hashedParams, signature);
-        require(ECDSA.verify(_msgHash, signature, signer), "Invalid signature");
+        bytes32 hashedParams = keccak256(abi.encodePacked(orderInfo.id));
+        bytes32 signedHash = ECDSA.toEthSignedMessageHash(hashedParams);
+        address recovered = ECDSA.recover(signedHash, signature);
         if (recovered != signer) revert InvalidSignature();
 
         accounts[orderInfo.buyer].balance += totalPrice;
@@ -86,7 +150,6 @@ contract LibraContract is Ownable, ReentrancyGuard {
 
         uint256 payTime = block.timestamp;
 
-        // orderIds.push(orderInfo.id);
         orders[orderInfo.id] = Order({
             id: orderInfo.id,
             completeTime: 0,
@@ -119,7 +182,8 @@ contract LibraContract is Ownable, ReentrancyGuard {
         accounts[order.seller].frozenSecurityDeposit += needSecurityDeposit;
 
         bytes32 hashedParams = keccak256(abi.encodePacked(id));
-        address recovered = ECDSA.recover(hashedParams, signature);
+        bytes32 signedHash = ECDSA.toEthSignedMessageHash(hashedParams);
+        address recovered = ECDSA.recover(signedHash, signature);
         if (recovered != signer) revert InvalidSignature();
 
         order.state = OrderStatus.Shipped;
@@ -135,7 +199,8 @@ contract LibraContract is Ownable, ReentrancyGuard {
         require(order.state == OrderStatus.Shipped, "Invalid state");
 
         bytes32 hashedParams = keccak256(abi.encodePacked(id));
-        address recovered = ECDSA.recover(hashedParams, signature);
+        bytes32 signedHash = ECDSA.toEthSignedMessageHash(hashedParams);
+        address recovered = ECDSA.recover(signedHash, signature);
         if (recovered != signer) revert InvalidSignature();
 
         uint needSecurityDeposit = order.securityDeposit * order.quantity;
