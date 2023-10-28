@@ -86,7 +86,7 @@ contract LibraContract is Ownable, ReentrancyGuard {
         "uint256 feesRatio, uint256 securityDeposit, uint256 fundReleasePeriod)"
     );
 
-    constructor(address initialOwner) Ownable() {
+    constructor(address initialOwner) Ownable(initialOwner) {
         admin = initialOwner;
         DOMAIN_SEPARATOR = keccak256(
             abi.encode(
@@ -134,13 +134,24 @@ contract LibraContract is Ownable, ReentrancyGuard {
     }
 
     function createOrder(OrderParams memory orderInfo, bytes memory signature) public payable {
+        Order memory order = orders[orderInfo.id];
+        require(bytes(order.id).length == 0, "Order existed");
         require(msg.sender == orderInfo.buyer, "Invalid buyer");
 
         uint256 amount = orderInfo.quantity * orderInfo.price;
         uint256 totalPrice = amount + amount * orderInfo.feesRatio / 100 / 2;
         require(msg.value == totalPrice, "Value sent is not correct");
 
-        bytes32 hashedParams = keccak256(abi.encodePacked(orderInfo.id));
+        bytes32 hashedParams = keccak256(abi.encodePacked(
+            orderInfo.id, 
+            orderInfo.price, 
+            orderInfo.buyer, 
+            orderInfo.seller, 
+            orderInfo.quantity, 
+            orderInfo.feesRatio, 
+            orderInfo.securityDeposit, 
+            orderInfo.fundReleasePeriod
+        ));
         bytes32 signedHash = ECDSA.toEthSignedMessageHash(hashedParams);
         address recovered = ECDSA.recover(signedHash, signature);
         if (recovered != signer) revert InvalidSignature();
@@ -181,14 +192,14 @@ contract LibraContract is Ownable, ReentrancyGuard {
 
         accounts[order.seller].frozenSecurityDeposit += needSecurityDeposit;
 
-        bytes32 hashedParams = keccak256(abi.encodePacked(id));
+        bytes32 hashedParams = keccak256(abi.encodePacked(msg.sender ,id));
         bytes32 signedHash = ECDSA.toEthSignedMessageHash(hashedParams);
         address recovered = ECDSA.recover(signedHash, signature);
         if (recovered != signer) revert InvalidSignature();
 
         order.state = OrderStatus.Shipped;
         orders[id] = order;
-        
+
         emit EventConfirmDeliver(id);
     }
 
@@ -198,7 +209,7 @@ contract LibraContract is Ownable, ReentrancyGuard {
         require(msg.sender == order.buyer, "Invalid buyer");
         require(order.state == OrderStatus.Shipped, "Invalid state");
 
-        bytes32 hashedParams = keccak256(abi.encodePacked(id));
+        bytes32 hashedParams = keccak256(abi.encodePacked(msg.sender ,id));
         bytes32 signedHash = ECDSA.toEthSignedMessageHash(hashedParams);
         address recovered = ECDSA.recover(signedHash, signature);
         if (recovered != signer) revert InvalidSignature();

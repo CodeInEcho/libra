@@ -71,7 +71,7 @@ contract LibraContractTest is Test {
         vm.stopPrank();
         
         // 模拟下单数据
-        uint256 price = 1;
+        uint256 price = 100;
         uint256 quantity = 2;
         uint256 feesRatio = 2;
         uint256 securityDeposit = 0;
@@ -82,11 +82,12 @@ contract LibraContractTest is Test {
 
         // 模拟签名
         uint256 privateKey = 0x97ed4950eeb00f0644845197ed8bf389eea9e1b718865095861aff22c9f84ee4;
-
-        bytes32 hashed = keccak256(abi.encodePacked(id));
+        bytes32 hashed = keccak256(abi.encodePacked(id, price, buyer, seller, quantity, 
+        feesRatio, securityDeposit, fundReleasePeriod));
         bytes32 signedHash = ECDSA.toEthSignedMessageHash(hashed);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, signedHash);
         bytes memory signature = abi.encodePacked(r, s, v);
+        console.logBytes(signature);
         // 下单
         LibraContract.OrderParams memory params = LibraContract.OrderParams({
             id: id,
@@ -113,11 +114,11 @@ contract LibraContractTest is Test {
         // 模拟签名
         uint256 privateKey = 0x97ed4950eeb00f0644845197ed8bf389eea9e1b718865095861aff22c9f84ee4;
 
-        bytes32 hashed = keccak256(abi.encodePacked(id));
+        address seller = address(0xfDff78e258aCBDF31544FD4d10Cc8C6e17E5060d);
+        bytes32 hashed = keccak256(abi.encodePacked(seller ,id));
         bytes32 signedHash = ECDSA.toEthSignedMessageHash(hashed);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, signedHash);
         bytes memory signature = abi.encodePacked(r, s, v);
-        address seller = address(0xfDff78e258aCBDF31544FD4d10Cc8C6e17E5060d);
         vm.startPrank(seller);
         vm.deal(seller, 2000);
         _libra.depositSecurity{value: 2000}();
@@ -131,9 +132,9 @@ contract LibraContractTest is Test {
         // 模拟签名
         uint256 privateKey = 0x97ed4950eeb00f0644845197ed8bf389eea9e1b718865095861aff22c9f84ee4;
 
-        bytes32 hashed = keccak256(abi.encodePacked(id));
+        bytes32 hashed = keccak256(abi.encodePacked(0xf3efBad1f23b25B0941Ba114f0f185718BaE0375 ,id));
         bytes32 signedHash = ECDSA.toEthSignedMessageHash(hashed);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, hashed);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, signedHash);
         bytes memory signature = abi.encodePacked(r, s, v);
 
         vm.startPrank(0xf3efBad1f23b25B0941Ba114f0f185718BaE0375);
